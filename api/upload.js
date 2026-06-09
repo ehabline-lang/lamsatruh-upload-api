@@ -1,8 +1,6 @@
 export const config = {
   api: {
-    bodyParser: {
-      sizeLimit: "8mb",
-    },
+    bodyParser: false,
   },
 };
 
@@ -12,10 +10,20 @@ function safeFileName(name = "image") {
   return `products/${Date.now()}-${Math.random().toString(36).slice(2)}.${cleanExt}`;
 }
 
+async function readRawBody(req) {
+  const chunks = [];
+
+  for await (const chunk of req) {
+    chunks.push(chunk);
+  }
+
+  return Buffer.concat(chunks);
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-File-Name, X-Content-Type");
 
   if (req.method === "OPTIONS") {
     return res.status(200).end();
@@ -26,34 +34,33 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { file, fileName, contentType } = req.body || {};
+    const rawBody = await readRawBody(req);
 
-    if (!file) {
+    if (!rawBody || rawBody.length === 0) {
       return res.status(400).json({ success: false, message: "No file provided" });
     }
 
+    const fileName = decodeURIComponent(req.headers["x-file-name"] || "image.jpg");
+    const contentType = req.headers["x-content-type"] || req.headers["content-type"] || "application/octet-stream";
+
     const storageEndpoint = process.env.BUNNY_STORAGE_ENDPOINT?.trim().replace(/\/$/, "");
-const apiKey = process.env.BUNNY_API_KEY?.trim();
-const cdnUrl = process.env.BUNNY_CDN_URL?.trim();
+    const apiKey = process.env.BUNNY_API_KEY?.trim();
+    const cdnUrl = process.env.BUNNY_CDN_URL?.trim();
 
     if (!storageEndpoint || !apiKey || !cdnUrl) {
       return res.status(500).json({ success: false, message: "Missing Bunny environment variables" });
     }
 
-    const base64Data = String(file).replace(/^data:image\/\w+;base64,/, "");
-    const buffer = Buffer.from(base64Data, "base64");
     const path = safeFileName(fileName);
-
     const uploadUrl = `${storageEndpoint}/${path}`;
 
     const bunnyResponse = await fetch(uploadUrl, {
       method: "PUT",
       headers: {
-  AccessKey: apiKey,
-  "Access-Key": apiKey,
-  "Content-Type": contentType || "application/octet-stream",
-},
-      body: buffer,
+        AccessKey: apiKey,
+        "Content-Type": contentType,
+      },
+      body: rawBody,
     });
 
     if (!bunnyResponse.ok) {
