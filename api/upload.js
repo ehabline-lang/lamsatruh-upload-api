@@ -47,13 +47,13 @@ const firstKey = Object.keys(files)[0];
 const fileValue = firstKey ? files[firstKey] : null;
 const uploaded = Array.isArray(fileValue) ? fileValue[0] : fileValue;
 
-if (!uploaded) {
-  return res.status(400).json({ success: false, message: "No file provided" });
+   if (!uploaded) {
+  return res.status(400).json({
+    success: false,
+    message: "No file provided",
+    fileKeys: Object.keys(files),
+  });
 }
-
-    if (!uploaded) {
-      return res.status(400).json({ success: false, message: "No file provided" });
-    }
 
     const buffer = fs.readFileSync(uploaded.filepath);
 
