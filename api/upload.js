@@ -32,11 +32,11 @@ export default async function handler(req, res) {
       return res.status(400).json({ success: false, message: "No file provided" });
     }
 
-    const storageZone = process.env.BUNNY_STORAGE_ZONE;
+    const storageEndpoint = process.env.BUNNY_STORAGE_ENDPOINT?.trim().replace(/\/$/, "");
 const apiKey = process.env.BUNNY_API_KEY;
 const cdnUrl = process.env.BUNNY_CDN_URL;
 
-    if (!storageZone || !apiKey || !cdnUrl) {
+    if (!storageEndpoint || !apiKey || !cdnUrl) {
       return res.status(500).json({ success: false, message: "Missing Bunny environment variables" });
     }
 
@@ -44,7 +44,7 @@ const cdnUrl = process.env.BUNNY_CDN_URL;
     const buffer = Buffer.from(base64Data, "base64");
     const path = safeFileName(fileName);
 
-    const uploadUrl = `https://storage.bunnycdn.com/${storageZone}/${path}`;
+    const uploadUrl = `${storageEndpoint}/${path}`;
 
     const bunnyResponse = await fetch(uploadUrl, {
       method: "PUT",
