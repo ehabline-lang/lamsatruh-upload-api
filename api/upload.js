@@ -53,7 +53,9 @@ export default async function handler(req, res) {
 
     const path = safeFileName(fileName);
     const uploadUrl = `${storageEndpoint}/${path}`;
-
+console.log("ENDPOINT=", storageEndpoint);
+console.log("APIKEY=", apiKey ? "FOUND" : "MISSING");
+console.log("CDN=", cdnUrl);
     const bunnyResponse = await fetch(uploadUrl, {
       method: "PUT",
       headers: {
