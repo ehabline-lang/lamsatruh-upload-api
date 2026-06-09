@@ -33,8 +33,8 @@ export default async function handler(req, res) {
     }
 
     const storageZone = process.env.BUNNY_STORAGE_ZONE;
-    const apiKey = process.env.BUNNY_API_KEY;
-    const cdnUrl = process.env.BUNNY_CDN_URL;
+const apiKey = process.env.BUNNY_API_KEY;
+const cdnUrl = process.env.BUNNY_CDN_URL;
 
     if (!storageZone || !apiKey || !cdnUrl) {
       return res.status(500).json({ success: false, message: "Missing Bunny environment variables" });
