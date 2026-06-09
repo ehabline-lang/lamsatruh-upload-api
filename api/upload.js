@@ -49,10 +49,11 @@ const uploaded = Array.isArray(fileValue) ? fileValue[0] : fileValue;
 
    if (!uploaded) {
   return res.status(400).json({
-    success: false,
-    message: "No file provided",
-    fileKeys: Object.keys(files),
-  });
+  success: false,
+  message: "No file provided",
+  fileKeys: Object.keys(files),
+  version: "formidable-v2"
+});
 }
 
     const buffer = fs.readFileSync(uploaded.filepath);
