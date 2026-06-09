@@ -1,3 +1,6 @@
+import formidable from "formidable";
+import fs from "fs";
+
 export const config = {
   api: {
     bodyParser: false,
@@ -8,6 +11,20 @@ function safeFileName(name = "image.jpg") {
   const ext = name.split(".").pop()?.toLowerCase() || "jpg";
   const cleanExt = ["jpg", "jpeg", "png", "webp"].includes(ext) ? ext : "jpg";
   return `products/${Date.now()}-${Math.random().toString(36).slice(2)}.${cleanExt}`;
+}
+
+function parseForm(req) {
+  const form = formidable({
+    multiples: false,
+    maxFileSize: 8 * 1024 * 1024,
+  });
+
+  return new Promise((resolve, reject) => {
+    form.parse(req, (err, fields, files) => {
+      if (err) reject(err);
+      else resolve({ fields, files });
+    });
+  });
 }
 
 export default async function handler(req, res) {
@@ -22,55 +39,51 @@ export default async function handler(req, res) {
   }
 
   try {
-    const chunks = [];
+    const { files } = await parseForm(req);
+    const uploaded = Array.isArray(files.file) ? files.file[0] : files.file;
 
-    req.on("data", (chunk) => {
-      chunks.push(chunk);
+    if (!uploaded) {
+      return res.status(400).json({ success: false, message: "No file provided" });
+    }
+
+    const buffer = fs.readFileSync(uploaded.filepath);
+
+    const storageEndpoint = process.env.BUNNY_STORAGE_ENDPOINT?.trim().replace(/\/$/, "");
+    const apiKey = process.env.BUNNY_API_KEY?.trim();
+    const cdnUrl = process.env.BUNNY_CDN_URL?.trim();
+
+    if (!storageEndpoint || !apiKey || !cdnUrl) {
+      return res.status(500).json({ success: false, message: "Missing Bunny environment variables" });
+    }
+
+    const path = safeFileName(uploaded.originalFilename || "image.jpg");
+    const uploadUrl = `${storageEndpoint}/${path}`;
+
+    const bunnyResponse = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: {
+        AccessKey: apiKey,
+        "Content-Type": uploaded.mimetype || "application/octet-stream",
+      },
+      body: buffer,
     });
 
-    req.on("end", async () => {
-      const buffer = Buffer.concat(chunks);
-
-      if (!buffer || buffer.length === 0) {
-        return res.status(400).json({ success: false, message: "No file provided" });
-      }
-
-      const storageEndpoint = process.env.BUNNY_STORAGE_ENDPOINT?.trim().replace(/\/$/, "");
-      const apiKey = process.env.BUNNY_API_KEY?.trim();
-      const cdnUrl = process.env.BUNNY_CDN_URL?.trim();
-
-      if (!storageEndpoint || !apiKey || !cdnUrl) {
-        return res.status(500).json({ success: false, message: "Missing Bunny environment variables" });
-      }
-
-      const path = safeFileName("image.jpg");
-      const uploadUrl = `${storageEndpoint}/${path}`;
-
-      const bunnyResponse = await fetch(uploadUrl, {
-        method: "PUT",
-        headers: {
-          AccessKey: apiKey,
-          "Content-Type": req.headers["content-type"] || "application/octet-stream",
-        },
-        body: buffer,
+    if (!bunnyResponse.ok) {
+      const errorText = await bunnyResponse.text();
+      return res.status(500).json({
+        success: false,
+        message: "Bunny upload failed",
+        details: errorText,
       });
+    }
 
-      if (!bunnyResponse.ok) {
-        const errorText = await bunnyResponse.text();
-        return res.status(500).json({
-          success: false,
-          message: "Bunny upload failed",
-          details: errorText,
-        });
-      }
-
-      return res.status(200).json({
-        success: true,
-        url: `${cdnUrl.replace(/\/$/, "")}/${path}`,
-        path,
-      });
+    return res.status(200).json({
+      success: true,
+      url: `${cdnUrl.replace(/\/$/, "")}/${path}`,
+      path,
     });
   } catch (error) {
+    console.error("UPLOAD ERROR =", error);
     return res.status(500).json({
       success: false,
       message: "Upload failed",
