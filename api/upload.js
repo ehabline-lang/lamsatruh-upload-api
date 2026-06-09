@@ -33,8 +33,8 @@ export default async function handler(req, res) {
     }
 
     const storageEndpoint = process.env.BUNNY_STORAGE_ENDPOINT?.trim().replace(/\/$/, "");
-const apiKey = process.env.BUNNY_API_KEY;
-const cdnUrl = process.env.BUNNY_CDN_URL;
+const apiKey = process.env.BUNNY_API_KEY?.trim();
+const cdnUrl = process.env.BUNNY_CDN_URL?.trim();
 
     if (!storageEndpoint || !apiKey || !cdnUrl) {
       return res.status(500).json({ success: false, message: "Missing Bunny environment variables" });
@@ -49,7 +49,8 @@ const cdnUrl = process.env.BUNNY_CDN_URL;
     const bunnyResponse = await fetch(uploadUrl, {
       method: "PUT",
       headers: {
-  AccessKey: String(apiKey).trim(),
+  AccessKey: apiKey,
+  "Access-Key": apiKey,
   "Content-Type": contentType || "application/octet-stream",
 },
       body: buffer,
