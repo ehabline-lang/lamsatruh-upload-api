@@ -14,10 +14,15 @@ function safeFileName(name = "image.jpg") {
 }
 
 function parseForm(req) {
-  const form = formidable({
-    multiples: false,
-    maxFileSize: 8 * 1024 * 1024,
-  });
+  const form = formidable.default
+    ? formidable.default({
+        multiples: false,
+        maxFileSize: 8 * 1024 * 1024,
+      })
+    : formidable({
+        multiples: false,
+        maxFileSize: 8 * 1024 * 1024,
+      });
 
   return new Promise((resolve, reject) => {
     form.parse(req, (err, fields, files) => {
@@ -47,13 +52,14 @@ const firstKey = Object.keys(files)[0];
 const fileValue = firstKey ? files[firstKey] : null;
 const uploaded = Array.isArray(fileValue) ? fileValue[0] : fileValue;
 
-   if (!uploaded) {
+  if (!uploaded) {
   return res.status(400).json({
-  success: false,
-  message: "No file provided",
-  fileKeys: Object.keys(files),
-  version: "formidable-v2"
-});
+    success: false,
+    message: "No file provided",
+    fileKeys: Object.keys(files),
+    contentType: req.headers["content-type"],
+    version: "formidable-v3-debug"
+  });
 }
 
     const buffer = fs.readFileSync(uploaded.filepath);
