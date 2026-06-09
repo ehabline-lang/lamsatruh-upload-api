@@ -12,15 +12,15 @@ function safeFileName(name = "image") {
 
 async function readRawBody(req) {
   const chunks = [];
-
   for await (const chunk of req) {
     chunks.push(chunk);
   }
-
   return Buffer.concat(chunks);
 }
 
 export default async function handler(req, res) {
+  console.log("METHOD =", req.method);
+
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-File-Name, X-Content-Type");
@@ -47,15 +47,18 @@ export default async function handler(req, res) {
     const apiKey = process.env.BUNNY_API_KEY?.trim();
     const cdnUrl = process.env.BUNNY_CDN_URL?.trim();
 
+    console.log("ENDPOINT =", storageEndpoint);
+    console.log("APIKEY =", apiKey ? "FOUND" : "MISSING");
+    console.log("CDN =", cdnUrl);
+    console.log("FILE SIZE =", rawBody.length);
+
     if (!storageEndpoint || !apiKey || !cdnUrl) {
       return res.status(500).json({ success: false, message: "Missing Bunny environment variables" });
     }
 
     const path = safeFileName(fileName);
     const uploadUrl = `${storageEndpoint}/${path}`;
-console.log("ENDPOINT=", storageEndpoint);
-console.log("APIKEY=", apiKey ? "FOUND" : "MISSING");
-console.log("CDN=", cdnUrl);
+
     const bunnyResponse = await fetch(uploadUrl, {
       method: "PUT",
       headers: {
@@ -80,6 +83,7 @@ console.log("CDN=", cdnUrl);
       path,
     });
   } catch (error) {
+    console.error("UPLOAD ERROR =", error);
     return res.status(500).json({
       success: false,
       message: "Upload failed",
