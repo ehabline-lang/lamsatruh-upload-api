@@ -43,7 +43,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ success: false, message: "No file provided" });
     }
 
-    const fileName = decodeURIComponent(req.headers["x-file-name"] || "image.jpg");
+    const fileName = "image.jpg";
     const contentType = req.headers["x-content-type"] || req.headers["content-type"] || "application/octet-stream";
 
     const storageEndpoint = process.env.BUNNY_STORAGE_ENDPOINT?.trim().replace(/\/$/, "");
