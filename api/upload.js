@@ -40,7 +40,16 @@ export default async function handler(req, res) {
 
   try {
     const { files } = await parseForm(req);
-    const uploaded = Array.isArray(files.file) ? files.file[0] : files.file;
+
+console.log("FILES =", Object.keys(files));
+
+const firstKey = Object.keys(files)[0];
+const fileValue = firstKey ? files[firstKey] : null;
+const uploaded = Array.isArray(fileValue) ? fileValue[0] : fileValue;
+
+if (!uploaded) {
+  return res.status(400).json({ success: false, message: "No file provided" });
+}
 
     if (!uploaded) {
       return res.status(400).json({ success: false, message: "No file provided" });
