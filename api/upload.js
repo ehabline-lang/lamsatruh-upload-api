@@ -49,9 +49,9 @@ export default async function handler(req, res) {
     const bunnyResponse = await fetch(uploadUrl, {
       method: "PUT",
       headers: {
-        AccessKey: apiKey,
-        "Content-Type": contentType || "application/octet-stream",
-      },
+  AccessKey: String(apiKey).trim(),
+  "Content-Type": contentType || "application/octet-stream",
+},
       body: buffer,
     });
 
