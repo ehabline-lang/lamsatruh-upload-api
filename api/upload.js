@@ -40,8 +40,12 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
 
   if (req.method !== "POST") {
-    return res.status(405).json({ success: false, message: "Method not allowed" });
-  }
+    return res.status(405).json({
+  success: false,
+  message: "Method not allowed",
+  version: "formidable-v3-debug"
+});
+
 
   try {
     console.log("VERSION = formidable-v3-debug");
