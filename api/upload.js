@@ -77,53 +77,6 @@ async function handler(req, res) {
   });
 }
 
-    if (!uploaded) {
-      return res.status(400).json({
-        success: false,
-        message: "No file provided",
-        fileKeys: Object.keys(files || {}),
-        version: "commonjs-v1",
-      });
-    }
-
-    const buffer = fs.readFileSync(uploaded.filepath);
-
-    const storageEndpoint = process.env.BUNNY_STORAGE_ENDPOINT?.trim().replace(/\/$/, "");
-    const apiKey = process.env.BUNNY_API_KEY?.trim();
-    const cdnUrl = process.env.BUNNY_CDN_URL?.trim();
-
-    const path = safeFileName(uploaded.originalFilename || "image.jpg");
-
-    const bunnyResponse = await fetch(`${storageEndpoint}/${path}`, {
-      method: "PUT",
-      headers: {
-        AccessKey: apiKey,
-        "Content-Type": uploaded.mimetype || "application/octet-stream",
-      },
-      body: buffer,
-    });
-
-    if (!bunnyResponse.ok) {
-      return res.status(500).json({
-        success: false,
-        message: "Bunny upload failed",
-        details: await bunnyResponse.text(),
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      url: `${cdnUrl.replace(/\/$/, "")}/${path}`,
-      path,
-      version: "commonjs-v1",
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: "Upload failed",
-      error: error.message,
-    });
-  }
-}
+ 
 
 module.exports = handler;
