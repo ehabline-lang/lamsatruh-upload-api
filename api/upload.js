@@ -67,7 +67,7 @@ async function handler(req, res) {
 
 return res.status(200).json({
   success: true,
-  version: "debug",
+  version: "debug-test",
   files,
   fields,
   fileKeys: Object.keys(files || {})
