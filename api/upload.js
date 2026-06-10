@@ -1,6 +1,8 @@
 async function handler(req, res) {
   return res.status(200).json({
-    test: "EHAB-123456"
+    method: req.method,
+    contentType: req.headers["content-type"],
+    length: req.headers["content-length"]
   });
 }
 
