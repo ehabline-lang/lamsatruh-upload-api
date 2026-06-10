@@ -42,7 +42,7 @@ export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({
   success: false,
-  message: "Method not allowed",
+  message: "Method not allowed ehab",
   version: "formidable-v3-debug"
 });
 
