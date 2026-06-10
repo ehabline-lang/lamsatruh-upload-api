@@ -13,11 +13,13 @@ module.exports = async (req, res) => {
   });
 
   form.parse(req, (err, fields, files) => {
-    res.status(200).json({
+    console.log("FILES =", files);
+
+    return res.status(200).json({
       err: err?.message || null,
       fields,
-      files,
-      fileKeys: Object.keys(files || {})
+      fileKeys: Object.keys(files || {}),
+      hasFile: !!files.file,
     });
   });
 };
