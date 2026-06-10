@@ -63,11 +63,15 @@ async function handler(req, res) {
   }
 
   try {
-    const { files } = await parseForm(req);
+    cconst { files, fields } = await parseForm(req);
 
-    const firstKey = Object.keys(files || {})[0];
-    const fileValue = firstKey ? files[firstKey] : null;
-    const uploaded = Array.isArray(fileValue) ? fileValue[0] : fileValue;
+return res.status(200).json({
+  success: true,
+  version: "debug",
+  files,
+  fields,
+  fileKeys: Object.keys(files || {})
+});
 
     if (!uploaded) {
       return res.status(400).json({
