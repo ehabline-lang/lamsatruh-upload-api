@@ -1,6 +1,7 @@
 const formidable = require("formidable");
 const fs = require("fs");
-export const config = {
+
+module.exports.config = {
   api: {
     bodyParser: false,
   },
@@ -12,16 +13,29 @@ function safeFileName(name = "image.jpg") {
   return `products/${Date.now()}-${Math.random().toString(36).slice(2)}.${cleanExt}`;
 }
 
+function createForm() {
+  if (typeof formidable === "function") {
+    return formidable({
+      multiples: false,
+      maxFileSize: 8 * 1024 * 1024,
+    });
+  }
+
+  if (formidable.default) {
+    return formidable.default({
+      multiples: false,
+      maxFileSize: 8 * 1024 * 1024,
+    });
+  }
+
+  return new formidable.IncomingForm({
+    multiples: false,
+    maxFileSize: 8 * 1024 * 1024,
+  });
+}
+
 function parseForm(req) {
-  const form = formidable.default
-    ? formidable.default({
-        multiples: false,
-        maxFileSize: 8 * 1024 * 1024,
-      })
-    : formidable({
-        multiples: false,
-        maxFileSize: 8 * 1024 * 1024,
-      });
+  const form = createForm();
 
   return new Promise((resolve, reject) => {
     form.parse(req, (err, fields, files) => {
@@ -31,40 +45,38 @@ function parseForm(req) {
   });
 }
 
-module.exports = async function handler(req, res) {
+async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  if (req.method === "OPTIONS") return res.status(200).end();
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
 
   if (req.method !== "POST") {
     return res.status(405).json({
-  success: false,
-  message: "Method not allowed ehab",
-  version: "formidable-v3-debug"
-});
-
+      success: false,
+      message: "Method not allowed ehab",
+      version: "commonjs-v1",
+    });
+  }
 
   try {
-    console.log("VERSION = formidable-v3-debug");
     const { files } = await parseForm(req);
 
-console.log("FILES =", Object.keys(files));
+    const firstKey = Object.keys(files || {})[0];
+    const fileValue = firstKey ? files[firstKey] : null;
+    const uploaded = Array.isArray(fileValue) ? fileValue[0] : fileValue;
 
-const firstKey = Object.keys(files)[0];
-const fileValue = firstKey ? files[firstKey] : null;
-const uploaded = Array.isArray(fileValue) ? fileValue[0] : fileValue;
-
-  if (!uploaded) {
-  return res.status(400).json({
-    success: false,
-    message: "No file provided",
-    fileKeys: Object.keys(files),
-    contentType: req.headers["content-type"],
-    version: "formidable-v3-debug"
-  });
-}
+    if (!uploaded) {
+      return res.status(400).json({
+        success: false,
+        message: "No file provided",
+        fileKeys: Object.keys(files || {}),
+        version: "commonjs-v1",
+      });
+    }
 
     const buffer = fs.readFileSync(uploaded.filepath);
 
@@ -72,14 +84,9 @@ const uploaded = Array.isArray(fileValue) ? fileValue[0] : fileValue;
     const apiKey = process.env.BUNNY_API_KEY?.trim();
     const cdnUrl = process.env.BUNNY_CDN_URL?.trim();
 
-    if (!storageEndpoint || !apiKey || !cdnUrl) {
-      return res.status(500).json({ success: false, message: "Missing Bunny environment variables" });
-    }
-
     const path = safeFileName(uploaded.originalFilename || "image.jpg");
-    const uploadUrl = `${storageEndpoint}/${path}`;
 
-    const bunnyResponse = await fetch(uploadUrl, {
+    const bunnyResponse = await fetch(`${storageEndpoint}/${path}`, {
       method: "PUT",
       headers: {
         AccessKey: apiKey,
@@ -89,11 +96,10 @@ const uploaded = Array.isArray(fileValue) ? fileValue[0] : fileValue;
     });
 
     if (!bunnyResponse.ok) {
-      const errorText = await bunnyResponse.text();
       return res.status(500).json({
         success: false,
         message: "Bunny upload failed",
-        details: errorText,
+        details: await bunnyResponse.text(),
       });
     }
 
@@ -101,9 +107,9 @@ const uploaded = Array.isArray(fileValue) ? fileValue[0] : fileValue;
       success: true,
       url: `${cdnUrl.replace(/\/$/, "")}/${path}`,
       path,
+      version: "commonjs-v1",
     });
   } catch (error) {
-    console.error("UPLOAD ERROR =", error);
     return res.status(500).json({
       success: false,
       message: "Upload failed",
@@ -111,3 +117,5 @@ const uploaded = Array.isArray(fileValue) ? fileValue[0] : fileValue;
     });
   }
 }
+
+module.exports = handler;
