@@ -44,6 +44,7 @@ export default async function handler(req, res) {
   }
 
   try {
+    console.log("VERSION = formidable-v3-debug");
     const { files } = await parseForm(req);
 
 console.log("FILES =", Object.keys(files));
