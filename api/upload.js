@@ -1,4 +1,4 @@
-const formidable = require("formidable");
+const { IncomingForm } = require("formidable");
 
 module.exports.config = {
   api: {
@@ -7,10 +7,13 @@ module.exports.config = {
 };
 
 module.exports = async (req, res) => {
-  const form = formidable({ multiples: false });
+  const form = new IncomingForm({
+    multiples: false,
+    keepExtensions: true,
+  });
 
   form.parse(req, (err, fields, files) => {
-    return res.status(200).json({
+    res.status(200).json({
       err: err?.message || null,
       fields,
       files,
