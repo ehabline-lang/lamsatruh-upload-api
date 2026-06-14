@@ -18,6 +18,15 @@ function safeFileName(name = "image.jpg") {
 }
 
 module.exports = async (req, res) => {
+  const uploadSecret = req.headers["x-upload-secret"];
+
+  if (!process.env.UPLOAD_SECRET || uploadSecret !== process.env.UPLOAD_SECRET) {
+    return res.status(401).json({
+      success: false,
+      message: "Unauthorized upload request",
+    });
+  }
+  
   setCors(res);
 
   if (req.method === "OPTIONS") return res.status(200).end();
