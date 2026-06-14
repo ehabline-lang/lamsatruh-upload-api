@@ -8,7 +8,7 @@ module.exports.config = {
 function setCors(res) {
   res.setHeader("Access-Control-Allow-Origin", "https://lamsatruh.net");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 }
 
 function safeFileName(name = "image.jpg") {
@@ -17,16 +17,68 @@ function safeFileName(name = "image.jpg") {
   return `products/${Date.now()}-${Math.random().toString(36).slice(2)}.${cleanExt}`;
 }
 
-module.exports = async (req, res) => {
-  const uploadSecret = req.headers["x-upload-secret"];
+async function verifyFirebaseToken(req) {
+  const authHeader = req.headers.authorization || "";
 
-  if (!process.env.UPLOAD_SECRET || uploadSecret !== process.env.UPLOAD_SECRET) {
-    return res.status(401).json({
-      success: false,
-      message: "Unauthorized upload request",
-    });
+  const token = authHeader.startsWith("Bearer ")
+    ? authHeader.replace("Bearer ", "")
+    : null;
+
+  if (!token) {
+    return {
+      ok: false,
+      status: 401,
+      message: "No auth token provided",
+    };
   }
-  
+
+  if (!process.env.FIREBASE_API_KEY || !process.env.ADMIN_EMAIL) {
+    return {
+      ok: false,
+      status: 500,
+      message: "Missing Firebase API environment variables",
+    };
+  }
+
+  const verifyResponse = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${process.env.FIREBASE_API_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idToken: token }),
+    }
+  );
+
+  const verifyData = await verifyResponse.json();
+
+  if (!verifyResponse.ok || !verifyData.users?.length) {
+    return {
+      ok: false,
+      status: 401,
+      message: "Invalid Firebase token",
+    };
+  }
+
+  const firebaseUser = verifyData.users[0];
+
+  if (
+    String(firebaseUser.email || "").toLowerCase() !==
+    String(process.env.ADMIN_EMAIL || "").toLowerCase()
+  ) {
+    return {
+      ok: false,
+      status: 403,
+      message: "This user is not allowed to upload",
+    };
+  }
+
+  return {
+    ok: true,
+    user: firebaseUser,
+  };
+}
+
+module.exports = async (req, res) => {
   setCors(res);
 
   if (req.method === "OPTIONS") return res.status(200).end();
@@ -35,17 +87,41 @@ module.exports = async (req, res) => {
     return res.status(405).json({ success: false, message: "Method not allowed" });
   }
 
-  const form = new IncomingForm({ multiples: false, keepExtensions: true });
+  const authCheck = await verifyFirebaseToken(req);
+
+  if (!authCheck.ok) {
+    return res.status(authCheck.status).json({
+      success: false,
+      message: authCheck.message,
+    });
+  }
+
+  const form = new IncomingForm({
+    multiples: false,
+    keepExtensions: true,
+    maxFileSize: 5 * 1024 * 1024,
+  });
 
   form.parse(req, async (err, fields, files) => {
     try {
-      if (err) return res.status(500).json({ success: false, message: err.message });
+      if (err) {
+        return res.status(500).json({ success: false, message: err.message });
+      }
 
       const fileValue = files.file;
       const file = Array.isArray(fileValue) ? fileValue[0] : fileValue;
 
       if (!file) {
         return res.status(400).json({ success: false, message: "No file provided" });
+      }
+
+      const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+
+      if (!allowedTypes.includes(file.mimetype)) {
+        return res.status(400).json({
+          success: false,
+          message: "Only JPG, PNG, and WEBP images are allowed",
+        });
       }
 
       const buffer = fs.readFileSync(file.filepath);
