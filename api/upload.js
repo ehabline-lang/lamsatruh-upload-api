@@ -1,5 +1,6 @@
 const { IncomingForm } = require("formidable");
 const fs = require("fs");
+const rateLimit = new Map();
 
 module.exports.config = {
   api: { bodyParser: false },
