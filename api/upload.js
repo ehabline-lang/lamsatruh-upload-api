@@ -79,6 +79,45 @@ async function verifyFirebaseToken(req) {
   };
 }
 
+function checkRateLimit(userId) {
+  const now = Date.now();
+
+  const windowMs = 60 * 1000; // دقيقة
+  const maxRequests = 5;
+
+  let data = rateLimit.get(userId);
+
+  if (!data) {
+    data = {
+      count: 1,
+      start: now,
+    };
+
+    rateLimit.set(userId, data);
+    return true;
+  }
+
+  if (now - data.start > windowMs) {
+    data.count = 1;
+    data.start = now;
+
+    rateLimit.set(userId, data);
+    return true;
+  }
+
+  if (data.count >= maxRequests) {
+    return false;
+  }
+
+  data.count++;
+
+  rateLimit.set(userId, data);
+
+  return true;
+}
+
+
+
 module.exports = async (req, res) => {
   setCors(res);
 
@@ -96,7 +135,14 @@ module.exports = async (req, res) => {
       message: authCheck.message,
     });
   }
+const userId = authCheck.user.localId || authCheck.user.email || "unknown";
 
+if (!checkRateLimit(userId)) {
+  return res.status(429).json({
+    success: false,
+    message: "Too many upload requests. Please try again later.",
+  });
+}
   const form = new IncomingForm({
     multiples: false,
     keepExtensions: true,
