@@ -1,5 +1,8 @@
 {
-  "dependencies": {
-    "formidable": "^3.5.2"
-  }
+  "name": "lamsatruh-upload-api",
+  "version": "1.1.0",
+  "private": true,
+  "scripts": { "test": "node --test tests/*.test.cjs", "check": "node --check api/upload.js" },
+  "engines": { "node": ">=22" },
+  "dependencies": { "firebase-admin": "14.5.0", "formidable": "3.5.4", "sharp": "0.35.5" }
 }

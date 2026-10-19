@@ -1,219 +1,79 @@
-const { IncomingForm } = require("formidable");
-const fs = require("fs");
-const rateLimit = new Map();
+const { IncomingForm } = require('formidable');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
+const { randomUUID } = require('node:crypto');
+const sharp = require('sharp');
+const { HttpError, configuration, authorize, createLimiter, timedFetch } = require('../lib/security');
 
-module.exports.config = {
-  api: { bodyParser: false },
-};
+const MAX_FILE = 4 * 1024 * 1024;
+const MAX_BODY = MAX_FILE + 128 * 1024;
+const MAX_PIXELS = 16 * 1024 * 1024;
+const limiter = createLimiter();
 
-function setCors(res) {
-  res.setHeader("Access-Control-Allow-Origin", "https://lamsatruh.com");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+async function imageBytes(file) {
+  const formats = { 'image/jpeg': ['jpg', 'jpeg'], 'image/png': ['png'], 'image/webp': ['webp'] };
+  const extension = path.extname(file.originalFilename || '').slice(1).toLowerCase();
+  if (!formats[file.mimetype]?.includes(extension)) throw new HttpError(400, 'اختر صورة JPG أو PNG أو WEBP أصلية');
+  const input = await fs.readFile(file.filepath);
+  if (!input.length || input.length > MAX_FILE) throw new HttpError(413, 'حجم الصورة يجب ألا يتجاوز 4 ميغابايت');
+  try {
+    const image = sharp(input, { limitInputPixels: MAX_PIXELS, failOn: 'warning', animated: false });
+    const meta = await image.metadata();
+    const expected = { 'image/jpeg': 'jpeg', 'image/png': 'png', 'image/webp': 'webp' }[file.mimetype];
+    if (meta.format !== expected || !meta.width || !meta.height || meta.width > 8192 || meta.height > 8192 || (meta.pages || 1) > 1) throw Error('invalid image');
+    // Decode and re-encode; metadata and appended non-image content are not retained.
+    return await image.rotate().flatten({ background: '#ffffff' }).jpeg({ quality: 92 }).toBuffer();
+  } catch { throw new HttpError(400, 'محتوى الصورة غير صالح أو أبعادها أكبر من المسموح'); }
 }
 
-function safeFileName(name = "image.jpg") {
-  const ext = name.split(".").pop()?.toLowerCase() || "jpg";
-  const cleanExt = ["jpg", "jpeg", "png", "webp"].includes(ext) ? ext : "jpg";
-  return `products/${Date.now()}-${Math.random().toString(36).slice(2)}.${cleanExt}`;
-}
-
-async function verifyFirebaseToken(req) {
-  const authHeader = req.headers.authorization || "";
-
-  const token = authHeader.startsWith("Bearer ")
-    ? authHeader.replace("Bearer ", "")
-    : null;
-
-  if (!token) {
-    return {
-      ok: false,
-      status: 401,
-      message: "No auth token provided",
-    };
-  }
-
-  if (!process.env.FIREBASE_API_KEY || !process.env.ADMIN_EMAIL) {
-    return {
-      ok: false,
-      status: 500,
-      message: "Missing Firebase API environment variables",
-    };
-  }
-
-  const verifyResponse = await fetch(
-    `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${process.env.FIREBASE_API_KEY}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ idToken: token }),
+function createHandler({ env = process.env, fetcher = fetch, verify, allow = limiter } = {}) {
+  return async (req, res) => {
+    let directory;
+    let status = 200, payload;
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Vary', 'Origin');
+    try {
+      const config = configuration(env);
+      const origin = req.headers.origin;
+      if (origin && !config.origins.has(origin)) throw new HttpError(403, 'رابط الموقع غير مسموح');
+      if (origin) res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      if (req.method === 'OPTIONS') return res.status(204).end();
+      if (req.method !== 'POST') { res.setHeader('Allow', 'POST, OPTIONS'); throw new HttpError(405, 'طريقة الطلب غير مسموحة'); }
+      const uid = await authorize(req, config, { verify, fetcher });
+      if (!allow(uid)) { res.setHeader('Retry-After', '60'); throw new HttpError(429, 'طلبات رفع كثيرة؛ انتظر دقيقة وأعد المحاولة'); }
+      if (!/^multipart\/form-data;\s*boundary=/i.test(req.headers['content-type'] || '')) throw new HttpError(400, 'صيغة رفع الملف غير صحيحة');
+      const length = req.headers['content-length'];
+      if (length !== undefined && (!/^\d+$/.test(length) || Number(length) > MAX_BODY)) throw new HttpError(413, 'حجم طلب الرفع أكبر من المسموح');
+      directory = await fs.mkdtemp(path.join(os.tmpdir(), 'lamsat-upload-'));
+      const form = new IncomingForm({ uploadDir: directory, multiples: false, keepExtensions: false, maxFiles: 1, maxFileSize: MAX_FILE, maxTotalFileSize: MAX_FILE, maxFields: 0, maxFieldsSize: 0, allowEmptyFiles: false, minFileSize: 1 });
+      let fields, files;
+      try { [fields, files] = await form.parse(req); }
+      catch (error) { throw new HttpError(error.httpCode === 413 ? 413 : 400, 'تعذر قراءة الملف؛ ارفع صورة واحدة بحجم لا يتجاوز 4 ميغابايت'); }
+      if (Object.keys(fields).length || Object.keys(files).length !== 1 || !Array.isArray(files.file) || files.file.length !== 1) throw new HttpError(400, 'ارفع صورة واحدة فقط في حقل file');
+      const buffer = await imageBytes(files.file[0]);
+      const storagePath = `products/${randomUUID()}.jpg`;
+      const uploaded = await timedFetch(fetcher, `${config.endpoint}/${storagePath}`, {
+        method: 'PUT', headers: { AccessKey: config.bunnyKey, 'Content-Type': 'image/jpeg' }, body: buffer,
+      });
+      if (!uploaded.ok) throw new HttpError(502, 'تعذر حفظ الصورة؛ حاول مرة ثانية');
+      payload = { success: true, url: `${config.cdn}/${storagePath}`, path: storagePath };
+    } catch (error) {
+      status = error instanceof HttpError ? error.status : 503;
+      payload = { success: false, message: error instanceof HttpError ? error.message : 'تعذر إكمال رفع الصورة؛ حاول لاحقاً' };
+    } finally {
+      if (directory) await fs.rm(directory, { recursive: true, force: true, maxRetries: 4, retryDelay: 50 }).catch(() => console.warn('Upload temporary cleanup failed'));
     }
-  );
-
-  const verifyData = await verifyResponse.json();
-
-  if (!verifyResponse.ok || !verifyData.users?.length) {
-    return {
-      ok: false,
-      status: 401,
-      message: "Invalid Firebase token",
-    };
-  }
-
-  const firebaseUser = verifyData.users[0];
-
-  if (
-    String(firebaseUser.email || "").toLowerCase() !==
-    String(process.env.ADMIN_EMAIL || "").toLowerCase()
-  ) {
-    return {
-      ok: false,
-      status: 403,
-      message: "This user is not allowed to upload",
-    };
-  }
-
-  return {
-    ok: true,
-    user: firebaseUser,
+    return res.status(status).json(payload);
   };
 }
 
-function checkRateLimit(userId) {
-  const now = Date.now();
-
-  const windowMs = 60 * 1000; // دقيقة
-  const maxRequests = 5;
-
-  let data = rateLimit.get(userId);
-
-  if (!data) {
-    data = {
-      count: 1,
-      start: now,
-    };
-
-    rateLimit.set(userId, data);
-    return true;
-  }
-
-  if (now - data.start > windowMs) {
-    data.count = 1;
-    data.start = now;
-
-    rateLimit.set(userId, data);
-    return true;
-  }
-
-  if (data.count >= maxRequests) {
-    return false;
-  }
-
-  data.count++;
-
-  rateLimit.set(userId, data);
-
-  return true;
-}
-
-
-
-module.exports = async (req, res) => {
-  setCors(res);
-
-  if (req.method === "OPTIONS") return res.status(200).end();
-
-  if (req.method !== "POST") {
-    return res.status(405).json({ success: false, message: "Method not allowed" });
-  }
-
-  const authCheck = await verifyFirebaseToken(req);
-
-  if (!authCheck.ok) {
-    return res.status(authCheck.status).json({
-      success: false,
-      message: authCheck.message,
-    });
-  }
-const userId = authCheck.user.localId || authCheck.user.email || "unknown";
-
-if (!checkRateLimit(userId)) {
-  return res.status(429).json({
-    success: false,
-    message: "Too many upload requests. Please try again later.",
-  });
-}
-  const form = new IncomingForm({
-    multiples: false,
-    keepExtensions: true,
-    maxFileSize: 5 * 1024 * 1024,
-  });
-
-  form.parse(req, async (err, fields, files) => {
-    try {
-      if (err) {
-        return res.status(500).json({ success: false, message: err.message });
-      }
-
-      const fileValue = files.file;
-      const file = Array.isArray(fileValue) ? fileValue[0] : fileValue;
-
-      if (!file) {
-        return res.status(400).json({ success: false, message: "No file provided" });
-      }
-
-      const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
-
-      if (!allowedTypes.includes(file.mimetype)) {
-        return res.status(400).json({
-          success: false,
-          message: "Only JPG, PNG, and WEBP images are allowed",
-        });
-      }
-
-      const buffer = fs.readFileSync(file.filepath);
-
-      const endpoint = process.env.BUNNY_STORAGE_ENDPOINT?.trim().replace(/\/$/, "");
-      const key = process.env.BUNNY_API_KEY?.trim();
-      const cdn = process.env.BUNNY_CDN_URL?.trim().replace(/\/$/, "");
-
-      if (!endpoint || !key || !cdn) {
-        return res.status(500).json({
-          success: false,
-          message: "Missing Bunny environment variables",
-        });
-      }
-
-      const path = safeFileName(file.originalFilename || "image.jpg");
-
-      const r = await fetch(`${endpoint}/${path}`, {
-        method: "PUT",
-        headers: {
-          AccessKey: key,
-          "Content-Type": file.mimetype || "application/octet-stream",
-        },
-        body: buffer,
-      });
-
-      if (!r.ok) {
-        return res.status(500).json({
-          success: false,
-          message: "Bunny upload failed",
-          details: await r.text(),
-        });
-      }
-
-      return res.status(200).json({
-        success: true,
-        url: `${cdn}/${path}`,
-        path,
-      });
-    } catch (error) {
-      return res.status(500).json({
-        success: false,
-        message: "Upload failed",
-        error: error.message,
-      });
-    }
-  });
-};
+const handler = createHandler();
+// Assign after module.exports: the old file accidentally discarded this setting.
+module.exports = handler;
+module.exports.config = { api: { bodyParser: false } };
+module.exports.createHandler = createHandler;
+module.exports.imageBytes = imageBytes;
